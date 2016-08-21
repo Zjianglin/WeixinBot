@@ -2,16 +2,20 @@
 # coding: utf-8
 import sys
 sys.path.append("..")
+sys.path.append("../recommand")
 import threading
 import time,logging, json, random
 from Queue import Queue
 from aenum import Enum
 from collections import defaultdict 
 from weixin import WebWeixin, catchKeyboardInterrupt
+from predict import predict
+from mongodb import dbutil
 
 WAIT_TIMEOUT = 60*1
 MAX_FIND_CHATTERS_NUM = 20
 CURRENT_FIND_CHATTERS_NUM = 0
+db_collection = dbutil().db.perInfo
 
 class CHATTINGTYPE:
 	UNKNOWN, CHAT, FIND = range(3)
@@ -37,31 +41,83 @@ class ChatState():
 		self.remoteId = remoteId #Remote chatting friend
 		self.remoteInfoSet = False #True means remote friend set his/her info
 		self.recommendFriendList = []
-		self.wantedFriendFeatureList = []			
+		self.wantedFriendFeature = ''			
 		self._getInitial()
 	
 	def _getInitial(self):
-		if 'remote friend set his/her info':
-			if(self.record. )
-			self.remoteInfoSet = True
-			self.state = CHATTING.WAIT_WANTED_INFO
+		record = db_collection.find({ "": self.remoteId})
+		if record:
+			self.record = record
+			if (record["图片"] and self.state ==CHATTING.WAIT_REMOTE_PIC):
+				self.state = CHATTING.WAIT_REMOTE_INFO
+			elif(self.state ==CHATTING.WAIT_REMOTE_PIC):
+				self.state = CHATTING.WAIT_REMOTE_PIC
+			elif(record["性别"] and record["学历"] and record["年龄"] and self.state == CHATTING.WAIT_REMOTE_INFO):
+				self.state = CHATTING.WAIT_WANTED_INFO
+			elif(self.state == CHATTING.WAIT_REMOTE_INFO) :
+				self.state = CHATTING.WAIT_REMOTE_INFO
+			elif (self.wantedFriendFeature and self.state == CHATTING.WAIT_WANTED_INFO):
+				self.state = CHATTING.TRY_RECOMMEND
+				self.getPredicted()
+			else :
+				pass
+		else:
+			self.state = CHATTING.WAIT_REMOTE_INFO
 
 	def refreshState(self):
-			''''''
+		self._getInitial()
+
+	def getPredicted(self):
+		self.recommendFriendList = list(predict(self.wantedFriendFeature))
+
+	def pickRecommend(self):
+		if(self.recommendFriendList == []):
+			self.state = CHATTING.RECOMMEND_FAIL
+			return False
+		else :
+			return self.recommendFriendList.pop()
+
+	def createResume(self, pic):
+		baseCfg = {
+			"wechatid": self.remoteId,
+			"图片": pic
+		}
+		record = db_collection.insert(baseCfg)
+		if(record["_id"]):
+			self.record = record
+
+	def updateResume(self, data):
+		resume = {
+			"性别": data[0],
+			"年龄": data[1],
+			"学历": data[2],
+			"工作": data[3],
+			"身高": data[4],
+			"收入": data[5],
+			"住址": data[6]
+		}
+
+		db_collection.update_one({"wechatid": self.remoteId}, resume)
 
 Current_chatters = defaultdict(ChatType)
 Friends__chatters = defaultdict(ChatState)
 Robot = None
 
-def cleanDeadConnect():
-	keys = Current_chatters.keys()
-	for remote in keys:
-		if (time.time() - Current_chatters[remote].updateAt) > WAIT_TIMEOUT:
-			print 'Disconnect a connection'
-			del Current_chatters[remote]
-			if Friends__chatters.has_key(remote):
-				del Friends__chatters[remote]
-				CURRENT_FIND_CHATTERS_NUM -= 1
+def cleanDeadConnect(remoteId=None):
+	if remoteId:
+		del Current_chatters[remoteId]
+		if Friends__chatters.has_key(remote):
+			del Friends__chatters[remote]
+			CURRENT_FIND_CHATTERS_NUM -= 1
+	else :
+		keys = Current_chatters.keys()
+		for remote in keys:
+			if (time.time() - Current_chatters[remote].updateAt) > WAIT_TIMEOUT:
+				print 'Disconnect a connection'
+				del Current_chatters[remote]
+				if Friends__chatters.has_key(remote):
+					del Friends__chatters[remote]
+					CURRENT_FIND_CHATTERS_NUM -= 1
 
 
 def handleRemote(msg):
@@ -107,7 +163,7 @@ def handleMsgDetail(msg, chatting_type, command='recv'):
 
 	reply = 'Chatting with xiaodoubi'
 	if chatting_type == 0:	#new chatting
-		reply = '您还没有选择交流模式哦\n想要和小豆聊天请回复: 小豆\n想要寻找微信好友聊天请回复： 推荐好友'
+		reply = '您还没有选择交流模式哦\n想要和小豆管家聊天请回复: 小豆\n想要寻找微信好友聊天请回复： 推荐好友'
 		if (Robot.webwxsendmsg(reply, uid)):
 		    print '自动回复: ' + reply
 		    logging.info('自动回复: ' + reply)
@@ -121,26 +177,41 @@ def handleMsgDetail(msg, chatting_type, command='recv'):
 		cur_stat = Friends__chatters[uid].state
 		if cur_stat == CHATTING.WAIT_REMOTE_PIC and msgType == 3:
 			image = Robot.webwxgetmsgimg(msgid)   #file path
-			'''database op'''
-			'''add img to db whose uid = uid'''
+			Friends__chatters[uid].createResume(image)
 			Friends__chatters[uid].refreshState()
-
-			reply = '已成功收到您的照片\n请告诉我您的个人简介信息，包括性别，年龄等(空格或逗号隔开每项)'
+			if( self.state == CHATTING.WAIT_REMOTE_INFO):
+				reply = '已成功收到您的照片\n请告诉我您的个人简介信息，格式为:性别-年龄-学历-工作-身高-收入-住址'
+			else :
+				reply = self.lastReply
 		elif cur_stat == CHATTING.WAIT_REMOTE_PIC and msgType == 1:
 			reply = '请上传你的靓照'
 		elif cur_stat == CHATTING.WAIT_REMOTE_INFO and msgType == 1:
-			'''add user's feauture to db'''
+			Friends__chatters[uid].updateResume(content.trim().split('-'))
 			Friends__chatters[uid].refreshState()
-			reply = '我们已经收到您的简介信息啦。\n请您再输入您想找一个什么条件的人聊天(格式:性别-年龄-学历, 个别属性不关心的话置为"不限")'
+			if(self.state == CHATTING.WAIT_WANTED_INFO ):
+				reply = '我们已经收到您的简介信息啦。\n请您再输入您想找一个什么条件的人聊天(格式:性别-年龄-学历, 个别属性不关心的话置为"不限")'
+			else:
+				reply = self.lastReply
 		elif cur_stat == CHATTING.WAIT_WANTED_INFO and msgType == 1:
+			self.wantedFriendFeature = content
 			reply = '我已经知道你想找个什么样的人聊天了~'
 			Friends__chatters[uid].refreshState()
-		elif cur_stat == CHATTING.TRY_RECOMMEND and msgType === 1:
+		elif cur_stat == CHATTING.TRY_RECOMMEND and msgType == 1:
 			if content.find('不喜欢') != -1:
-				'''get another resume to recommend'''
-				reply = "recommand to you(WeChat Id) : " + Friends__chatters[uid].lastRecommendId
+				'''get the resume's wechatid to recommend'''
+				reply = "recommand to you(WeChat Id) : " + Friends__chatters[uid].lastRecommendId + '\n see you next time~'
+				cleanDeadConnect(self.remoteId)
 			else :
-				Friends__chatters[uid].lastRecommendId = '''recommandId'''
+				resume_id = Friends__chatters[uid].pickRecommend()
+				if not resume_id:
+					cleanDeadConnect(self.remoteId)
+
+				resume = db_collection.find({'_id': resume_id})
+				# reply recommend's pic
+				Robot.sendImg(uid, resume["图片"])
+
+				reply = resume["年龄"] + '-' + resume["学历"] + resume["工作"]
+				Friends__chatters[uid].lastRecommendId = resume["wechatid"]
 				Friends__chatters[uid].lastReply = ''
 		else :
 			reply = Friends__chatters[uid].lastReply
@@ -152,12 +223,6 @@ def handleMsgDetail(msg, chatting_type, command='recv'):
 		else:
 		    print '自动回复失败' + reply
 		    logging.info('自动回复失败')
-
-		if cur_stat == CHATTING.TRY_RECOMMEND:
-			'''get recommendFriendList from API'''
-			Friends__chatters[uid].lastReply = ''
-			Friends__chatters[uid].lastRecommendId = 'current recommend id'
-			''' send a recommend to remote user'''
 
 	print reply
 

@@ -10,7 +10,7 @@ class dbutil:
 
 def main():
     a = dbutil()
-    fout = open('./DataFromDB', 'w')
+    fout = open('../recommend/DataFromDB', 'w')
     for id in range(1, 1001):
         res = a.db.perInfo.find({"_id": id})
         for s in res:

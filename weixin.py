@@ -862,7 +862,8 @@ class WebWeixin(object):
         media_id = ""
         if response is not None:
             media_id = response['MediaId']
-        user_id = self.getUSerID(name)
+        # user_id = self.getUSerID(name)
+        user_id = name 
         response = self.webwxsendmsgimg(user_id, media_id)
 
     def sendEmotion(self, name, file_name):
