@@ -873,6 +873,54 @@ class WebWeixin(object):
         user_id = self.getUSerID(name)
         response = self.webwxsendmsgemotion(user_id, media_id)
 
+    def tryLogin(self):
+        self._echo('[*] 微信网页版 ... 开动')
+        print
+        logging.debug('[*] 微信网页版 ... 开动')
+        while True:
+            self._run('[*] 正在获取 uuid ... ', self.getUUID)
+            self._echo('[*] 正在获取二维码 ... 成功')
+            print
+            logging.debug('[*] 微信网页版 ... 开动')
+            self.genQRCode()
+            print '[*] 请使用微信扫描二维码以登录 ... '
+            if not self.waitForLogin():
+                continue
+                print '[*] 请在手机上点击确认以登录 ... '
+            if not self.waitForLogin(0):
+                continue
+            break
+
+        self._run('[*] 正在登录 ... ', self.login)
+        self._run('[*] 微信初始化 ... ', self.webwxinit)
+        self._run('[*] 开启状态通知 ... ', self.webwxstatusnotify)
+        self._run('[*] 获取联系人 ... ', self.webwxgetcontact)
+        self._echo('[*] 应有 %s 个联系人，读取到联系人 %d 个' %
+                   (self.MemberCount, len(self.MemberList)))
+        print
+        self._echo('[*] 共有 %d 个群 | %d 个直接联系人 | %d 个特殊账号 ｜ %d 公众号或服务号' % (len(self.GroupList),
+                                                                         len(self.ContactList), len(self.SpecialUsersList), len(self.PublicUsersList)))
+        print
+        self._run('[*] 获取群 ... ', self.webwxbatchgetcontact)
+        logging.debug('[*] 微信网页版 ... 开动')
+        if self.DEBUG:
+            print self
+        logging.debug(self)
+
+    def chatWithXiaodoubi(self, query, remote):
+        key = 'dz12Z1gvZ0E9WHByd3VUdU5Wb2prVnduU3drQUFBPT0'
+        # query = re.sub(r'\s+', ' ', query)
+        url = 'http://api.douqq.com/?key=%s&msg=%s' % (
+                key, query)
+        res = urllib2.urlopen(url).read()
+        if (self.webwxsendmsg(res, remote)):
+            print "response success"
+        else:
+            print "response failed"
+        print url
+        print res
+
+
     @catchKeyboardInterrupt
     def start(self):
         self._echo('[*] 微信网页版 ... 开动')
